@@ -7,7 +7,9 @@ const els = {
   to: $("to"),
   load: $("load"),
   del: $("del"),
-  csv: $("csv"),
+  download: $("download"),
+  copyJson: $("copyJson"),
+  copyCsv: $("copyCsv"),
   status: $("status"),
   range: $("range"),
   chart: $("chart"),
@@ -166,13 +168,22 @@ async function addPoint() {
   els.npAdd.disabled = true;
   els.npStatus.textContent = "登録中…";
   try {
-    const token = els.npToken.value.trim();
-    const url = "/api/points" + (token ? `?token=${encodeURIComponent(token)}` : "");
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+    const reqAdd = (tok) =>
+      fetch("/api/points" + (tok ? `?token=${encodeURIComponent(tok)}` : ""), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    let res = await reqAdd(els.npToken.value.trim());
+    if (res.status === 401) {
+      // 本番はトークン必須。未入力なら入力を促して再試行
+      const tok = prompt("登録用トークン(CRON_TOKEN)を入力してください");
+      if (tok === null) {
+        els.npStatus.textContent = "登録をキャンセルしました";
+        return;
+      }
+      res = await reqAdd(tok.trim());
+    }
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
     els.npStatus.textContent = `「${data.name}」を登録しました。選択して開始日を指定すると過去データを取得します。`;
@@ -256,6 +267,26 @@ function downloadCsv() {
   URL.revokeObjectURL(a.href);
 }
 
+// 現在の地点・期間に対応するエンドポイントURLをクリップボードにコピーする。
+async function copyEndpoint(kind) {
+  const point = els.point.value;
+  const from = els.from.value;
+  const to = els.to.value;
+  if (!point || !from || !to) {
+    els.status.textContent = "地点・期間を指定してください";
+    return;
+  }
+  const path = kind === "csv" ? "/api/daily.csv" : "/api/daily";
+  const url = `${location.origin}${path}?point=${encodeURIComponent(point)}&from=${from}&to=${to}`;
+  try {
+    await navigator.clipboard.writeText(url);
+    els.status.textContent = `${kind.toUpperCase()} APIのURLをコピーしました: ${url}`;
+  } catch {
+    // クリップボード不可時はURLを表示（手動コピー用）
+    els.status.textContent = `${kind.toUpperCase()} API URL: ${url}`;
+  }
+}
+
 function render(rows) {
   renderTable(rows);
   renderChart(rows);
@@ -333,7 +364,9 @@ function init() {
 
   // 日付・地点の変更で即再取得（「表示」ボタンを押さなくても反映）
   els.load.addEventListener("click", loadDaily);
-  els.csv.addEventListener("click", downloadCsv);
+  els.download.addEventListener("click", downloadCsv);
+  els.copyJson.addEventListener("click", () => copyEndpoint("json"));
+  els.copyCsv.addEventListener("click", () => copyEndpoint("csv"));
   els.del.addEventListener("click", deletePoint);
   els.point.addEventListener("change", loadDaily);
   els.from.addEventListener("change", loadDaily);
