@@ -10,7 +10,7 @@ import {
   getPoint,
   getPoints,
 } from "./db";
-import type { Point } from "./db";
+import type { DailyRow, Point } from "./db";
 import { addDays, todayJst, yesterdayJst } from "./utils";
 
 export interface Env {
@@ -32,6 +32,8 @@ export default {
           return await handlePoints(env);
         case "/api/daily":
           return await handleDaily(env, url);
+        case "/api/daily.csv":
+          return await handleDailyCsv(env, url);
         case "/api/resolve":
           return await handleResolve(url);
         case "/cron/collect":
@@ -51,13 +53,19 @@ async function handlePoints(env: Env): Promise<Response> {
   return json(points.map((p) => ({ point_code: p.point_code, name: p.name })));
 }
 
-async function handleDaily(env: Env, url: URL): Promise<Response> {
+type DailyResult =
+  | { ok: true; pointCode: string; from: string; to: string; rows: DailyRow[] }
+  | { ok: false; res: Response };
+
+// point/from/to を解決し、前方補完(fillGap)＋後方補完(backfill)後に該当期間の行を返す。
+// /api/daily（JSON）と /api/daily.csv（CSV）で共有する。
+async function loadDailyRows(env: Env, url: URL): Promise<DailyResult> {
   const pointCode = url.searchParams.get("point") ?? DEFAULT_POINT;
   const to = url.searchParams.get("to") ?? todayJst();
   const from = url.searchParams.get("from") ?? addDays(to, -DEFAULT_RANGE_DAYS);
 
   const point = await getPoint(env.DB, pointCode);
-  if (!point) return json({ error: `unknown point ${pointCode}` }, 404);
+  if (!point) return { ok: false, res: json({ error: `unknown point ${pointCode}` }, 404) };
 
   // 前方補完: MAX(date)→昨日（失敗してもDBの既存分は返す）
   try {
@@ -81,7 +89,40 @@ async function handleDaily(env: Env, url: URL): Promise<Response> {
   }
 
   const rows = await getDaily(env.DB, pointCode, from, to);
-  return json(rows);
+  return { ok: true, pointCode, from, to, rows };
+}
+
+async function handleDaily(env: Env, url: URL): Promise<Response> {
+  const r = await loadDailyRows(env, url);
+  return r.ok ? json(r.rows) : r.res;
+}
+
+async function handleDailyCsv(env: Env, url: URL): Promise<Response> {
+  const r = await loadDailyRows(env, url);
+  if (!r.ok) return r.res;
+
+  const cols: (keyof DailyRow)[] = [
+    "date",
+    "point_code",
+    "temp_max",
+    "temp_min",
+    "temp_avg",
+    "precip_sum",
+    "wind_max",
+    "sunshine_h",
+  ];
+  const lines = [cols.join(",")];
+  for (const row of r.rows) {
+    lines.push(cols.map((c) => (row[c] === null || row[c] === undefined ? "" : String(row[c]))).join(","));
+  }
+  // ExcelでUTF-8を正しく読むため BOM を付与
+  const body = "﻿" + lines.join("\r\n") + "\r\n";
+  return new Response(body, {
+    headers: {
+      "content-type": "text/csv; charset=utf-8",
+      "content-disposition": `inline; filename="amedas_${r.pointCode}_${r.from}_${r.to}.csv"`,
+    },
+  });
 }
 
 async function handleAddPoint(req: Request, env: Env, url: URL): Promise<Response> {
