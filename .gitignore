@@ -1,0 +1,8 @@
+node_modules/
+.wrangler/
+seed.sql
+*.log
+.dev.vars
+
+# 実IDを含むため非公開。公開テンプレートは wrangler.toml.example
+wrangler.toml

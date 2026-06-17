@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>アメダス日別データ</title>
+    <style>
+      :root {
+        --bg: #0f1720;
+        --panel: #18222e;
+        --line: #2a3947;
+        --fg: #e6edf3;
+        --muted: #93a4b3;
+        --accent: #4aa3ff;
+        --warm: #ff8a5c;
+        --rain: #5cc8ff;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: system-ui, "Segoe UI", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+        background: var(--bg);
+        color: var(--fg);
+      }
+      header {
+        padding: 18px 24px;
+        border-bottom: 1px solid var(--line);
+      }
+      h1 { margin: 0; font-size: 18px; font-weight: 600; }
+      h1 small { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 8px; }
+      main { padding: 20px 24px; max-width: 1100px; margin: 0 auto; }
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 14px;
+        align-items: end;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 16px;
+      }
+      .field { display: flex; flex-direction: column; gap: 6px; }
+      label { font-size: 12px; color: var(--muted); }
+      select, input[type="date"], button {
+        background: #0d141c;
+        color: var(--fg);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 8px 10px;
+        font-size: 14px;
+      }
+      button {
+        background: var(--accent);
+        color: #04121f;
+        border: none;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:disabled { opacity: 0.5; cursor: default; }
+      button.danger { background: transparent; color: #ff7a7a; border: 1px solid #5a2a2a; }
+      button.danger:hover { background: #2a1414; }
+      button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+      button.ghost:hover { background: #0d141c; }
+      .status { color: var(--muted); font-size: 13px; margin: 14px 2px; min-height: 18px; }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 16px;
+        margin-top: 16px;
+      }
+      .card h2 { margin: 0 0 12px; font-size: 14px; font-weight: 600; color: var(--muted); }
+      svg { width: 100%; height: 280px; display: block; }
+      table { width: 100%; border-collapse: collapse; font-size: 13px; }
+      th, td { padding: 7px 10px; text-align: right; border-bottom: 1px solid var(--line); }
+      th { color: var(--muted); font-weight: 500; position: sticky; top: 0; background: var(--panel); }
+      td:first-child, th:first-child { text-align: left; }
+      .tablewrap { max-height: 420px; overflow: auto; }
+      .legend { display: flex; gap: 18px; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+      .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+      .range { font-weight: 400; color: var(--muted); font-size: 12px; }
+      details.addbox {
+        margin-top: 12px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 12px 16px;
+      }
+      details.addbox summary { cursor: pointer; font-size: 13px; color: var(--accent); }
+      .hint { font-size: 12px; color: var(--muted); line-height: 1.6; }
+      .hint code { background: #0d141c; padding: 1px 5px; border-radius: 4px; }
+      .hint a { color: var(--accent); }
+      .addgrid { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+      .addgrid input { width: 130px; }
+      .attribution {
+        margin: 28px 2px 8px;
+        padding-top: 14px;
+        border-top: 1px solid var(--line);
+        font-size: 12px;
+        color: var(--muted);
+        line-height: 1.7;
+      }
+      .attribution a { color: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>アメダス日別データ</h1>
+    </header>
+    <main>
+      <div class="controls">
+        <div class="field">
+          <label for="point">地点</label>
+          <select id="point"></select>
+        </div>
+        <button id="del" class="danger" title="選択中の地点と日別データを削除">削除</button>
+        <div class="field">
+          <label for="from">開始日</label>
+          <input type="date" id="from" />
+        </div>
+        <div class="field">
+          <label for="to">終了日</label>
+          <input type="date" id="to" />
+        </div>
+        <button id="load">表示</button>
+        <button id="csv" class="ghost" title="表示中の期間をCSVでダウンロード">CSV</button>
+      </div>
+
+      <details class="addbox">
+        <summary>地点を追加</summary>
+        <p class="hint">
+          必要なURLは <b>1つだけ</b>。
+          <a href="https://www.data.jma.go.jp/stats/etrn/select/prefecture00.php" target="_blank" rel="noopener">過去の気象データ・地点選択</a>
+          で都道府県→地点を選び、開いた「日ごとの値」ページのURLを貼って「解析」を押すと、
+          <code>prec_no</code> / <code>block_no</code> を抽出し、名称と <code>bosai_code</code> も
+          <a href="https://www.jma.go.jp/bosai/amedas/const/amedastable.json" target="_blank" rel="noopener">amedastable</a>
+          から自動補完します。内容を確認して「登録」。
+          <br />（bosaiの地図URL <code>#area_code=…</code> は地点コードを含まないため使えません。）
+        </p>
+        <div class="addgrid">
+          <div class="field" style="flex: 1 1 340px">
+            <label>etrn「日ごとの値」ページのURL</label>
+            <input id="np_url" style="width: 100%"
+              placeholder="https://www.data.jma.go.jp/stats/etrn/view/daily_a1.php?prec_no=48&block_no=0414…" />
+          </div>
+          <button id="np_parse">解析</button>
+        </div>
+        <div class="addgrid">
+          <div class="field"><label>地点コード(正準)</label><input id="np_code" placeholder="48561" /></div>
+          <div class="field"><label>名称</label><input id="np_name" placeholder="原村" /></div>
+          <div class="field"><label>bosai_code</label><input id="np_bosai" placeholder="48561" /></div>
+          <div class="field"><label>etrn prec_no</label><input id="np_prec" placeholder="48" /></div>
+          <div class="field"><label>etrn block_no</label><input id="np_block" placeholder="0414" /></div>
+          <div class="field"><label>token(本番のみ)</label><input id="np_token" placeholder="未設定なら空" /></div>
+          <button id="np_add">登録</button>
+        </div>
+        <div class="status" id="np_status"></div>
+      </details>
+
+      <div class="status" id="status"></div>
+
+      <div class="card">
+        <h2>気温（℃）と降水量（mm）</h2>
+        <div class="legend">
+          <span><i style="background: var(--warm)"></i>最高気温</span>
+          <span><i style="background: var(--accent)"></i>最低気温</span>
+          <span><i style="background: var(--rain)"></i>降水量</span>
+        </div>
+        <svg id="chart" viewBox="0 0 1000 280" preserveAspectRatio="none"></svg>
+      </div>
+
+      <div class="card">
+        <h2>日別一覧 <span id="range" class="range"></span></h2>
+        <div class="tablewrap">
+          <table id="table">
+            <thead>
+              <tr>
+                <th>日付</th><th>最高(℃)</th><th>最低(℃)</th><th>平均(℃)</th>
+                <th>降水(mm)</th><th>最大風速(m/s)</th><th>日照(h)</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <footer class="attribution">
+        出典：気象庁ホームページ（<a href="https://www.jma.go.jp/" target="_blank" rel="noopener">https://www.jma.go.jp/</a>）<br />
+        本サイトの数値は、気象庁が公開する観測値（アメダス）を日別に集計・加工したものです。
+      </footer>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>

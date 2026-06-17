@@ -1,0 +1,15 @@
+name = "ni-amedas"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+
+# フロントエンドの静的配信（Pages不使用 / 同一Worker）
+[assets]
+directory = "./public"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "amedas-db"
+database_id = "YOUR_D1_DATABASE_ID"   # `wrangler d1 create amedas-db` の出力を記入
+
+# スケジュールは外部 cron-job.org が /cron/collect を叩くため [triggers] は使わない。
+# CRON_TOKEN は `wrangler secret put CRON_TOKEN` で設定する。
