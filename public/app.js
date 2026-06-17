@@ -22,7 +22,6 @@ const els = {
   npBosai: $("np_bosai"),
   npPrec: $("np_prec"),
   npBlock: $("np_block"),
-  npToken: $("np_token"),
   npAdd: $("np_add"),
   npStatus: $("np_status"),
 };
@@ -168,22 +167,12 @@ async function addPoint() {
   els.npAdd.disabled = true;
   els.npStatus.textContent = "登録中…";
   try {
-    const reqAdd = (tok) =>
-      fetch("/api/points" + (tok ? `?token=${encodeURIComponent(tok)}` : ""), {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-    let res = await reqAdd(els.npToken.value.trim());
-    if (res.status === 401) {
-      // 本番はトークン必須。未入力なら入力を促して再試行
-      const tok = prompt("登録用トークン(CRON_TOKEN)を入力してください");
-      if (tok === null) {
-        els.npStatus.textContent = "登録をキャンセルしました";
-        return;
-      }
-      res = await reqAdd(tok.trim());
-    }
+    // 登録は token 不要（誰でも追加可）
+    const res = await fetch("/api/points", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
     els.npStatus.textContent = `「${data.name}」を登録しました。選択して開始日を指定すると過去データを取得します。`;
@@ -204,12 +193,11 @@ async function deletePoint() {
 
   els.del.disabled = true;
   try {
-    const tokenField = els.npToken.value.trim();
     const reqDelete = (tok) =>
       fetch(`/api/points?point=${encodeURIComponent(code)}${tok ? `&token=${encodeURIComponent(tok)}` : ""}`, {
         method: "DELETE",
       });
-    let res = await reqDelete(tokenField);
+    let res = await reqDelete("");
     if (res.status === 401) {
       const tok = prompt("削除用トークン(CRON_TOKEN)を入力してください");
       if (tok === null) return;

@@ -27,7 +27,7 @@ export default {
     try {
       switch (url.pathname) {
         case "/api/points":
-          if (req.method === "POST") return await handleAddPoint(req, env, url);
+          if (req.method === "POST") return await handleAddPoint(req, env);
           if (req.method === "DELETE") return await handleDeletePoint(req, env, url);
           return await handlePoints(env);
         case "/api/daily":
@@ -125,13 +125,9 @@ async function handleDailyCsv(env: Env, url: URL): Promise<Response> {
   });
 }
 
-async function handleAddPoint(req: Request, env: Env, url: URL): Promise<Response> {
-  // CRON_TOKEN が設定されていれば認証必須（本番）。未設定ならローカル開発として許可。
-  const token = url.searchParams.get("token") ?? req.headers.get("x-cron-token");
-  if (env.CRON_TOKEN && token !== env.CRON_TOKEN) {
-    return json({ error: "unauthorized" }, 401);
-  }
-
+async function handleAddPoint(req: Request, env: Env): Promise<Response> {
+  // 地点の登録は token 不要（UIから人が追加できるよう開放）。
+  // 破壊的操作の削除（DELETE）と cron は引き続き token 必須。
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   const pointCode = str(body?.point_code);
   const name = str(body?.name);
