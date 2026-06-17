@@ -156,6 +156,31 @@ export async function fillGap(db: D1Database, point: Point): Promise<FillResult>
 }
 
 /**
+ * 直近 days 日を etrn で再取得して上書きする（reconcile）。
+ * 差分 <= 7日 の補完は bosai の自前集計（10分値平均・UTC窓）で、JMA公式の日平均
+ * （毎正時24値の平均）と僅かにずれ得る。etrn が公式値を公開した後にこの窓を
+ * INSERT OR REPLACE で上書きし、bosai値を etrn 公式値へ揃える。
+ * cron からのみ呼ぶ（毎APIアクセスでetrnを叩かないため）。etrn 失敗時は既存値を保持。
+ */
+export async function reconcileRecent(
+  db: D1Database,
+  point: Point,
+  days = 10,
+): Promise<number> {
+  if (!point.etrn_prec_no || !point.etrn_block_no) return 0;
+  const to = yesterdayJst();
+  const from = addDays(to, -(days - 1));
+  try {
+    const rows = await fetchEtrnRange(point, from, to);
+    await upsertDaily(db, rows);
+    return rows.length;
+  } catch (e) {
+    console.error(`reconcile failed for ${point.point_code}:`, e);
+    return 0;
+  }
+}
+
+/**
  * 過去への遡及取得（backfill）。[from, to] の範囲を etrn で月単位に取得・保存する。
  * 新しい月から古い月へ進めるため、min(date) が連続的に過去へ伸びる（途中に穴ができない）。
  * Workers のサブリクエスト上限対策で 1リクエストあたり maxMonths 月で打ち切る

@@ -9,6 +9,7 @@ import {
   getEarliestDate,
   getPoint,
   getPoints,
+  reconcileRecent,
 } from "./db";
 import type { DailyRow, Point } from "./db";
 import { addDays, todayJst, yesterdayJst } from "./utils";
@@ -236,7 +237,10 @@ async function handleCron(req: Request, env: Env, url: URL): Promise<Response> {
   const results = [];
   for (const p of points) {
     try {
-      results.push(await fillGap(env.DB, p));
+      const fill = await fillGap(env.DB, p);
+      // 直近窓を etrn で上書きし、bosai 自前集計値を公式日平均へ揃える。
+      const reconciled = await reconcileRecent(env.DB, p);
+      results.push({ ...fill, reconciled });
     } catch (e) {
       results.push({ point: p.point_code, error: errMsg(e) });
     }
