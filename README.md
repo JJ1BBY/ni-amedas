@@ -60,7 +60,7 @@ https://<your-worker>.workers.dev/cron/collect?token=<CRON_TOKEN>
 | GET | `/api/daily.csv?point=&from=&to=` | 同上を CSV（UTF-8 BOM）で返す。JS不要なので外部ツール/LLMから直接読める |
 | GET | `/api/points` | enabled 地点一覧 |
 | POST | `/api/points` | 地点を登録（body: point_code, name, bosai_code, etrn_prec_no, etrn_block_no）。**token不要**（UIから人が追加可） |
-| DELETE | `/api/points?point=コード` | 地点とその日別データを削除。`CRON_TOKEN` 設定時は token 必須 |
+| DELETE | `/api/points?point=コード` | 地点とその日別データを削除。token 必須（`CRON_TOKEN` 未設定の場合は常に拒否） |
 | GET | `/api/resolve?prec=&block=` / `?bosai=` / `?name=` | 地点名・bosai_code を解決（UIの「解析」用） |
 | GET/POST | `/cron/collect?token=...` | 全地点の差分補完（cron 用、token 必須） |
 | GET | `/` | Web UI |

@@ -21,6 +21,12 @@ export interface Env {
 
 const DEFAULT_POINT = "48561";
 const DEFAULT_RANGE_DAYS = 30;
+const CODE_RE = /^[0-9A-Za-z]{1,8}$/;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_NAME_LENGTH = 40;
+const MAX_POINTS = 100;
+// AMeDAS の運用開始（1974-11）より前は取得しても空なので、遡及の下限とする。
+const EARLIEST_FROM = "1974-11-01";
 
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
@@ -63,7 +69,11 @@ type DailyResult =
 async function loadDailyRows(env: Env, url: URL): Promise<DailyResult> {
   const pointCode = url.searchParams.get("point") ?? DEFAULT_POINT;
   const to = url.searchParams.get("to") ?? todayJst();
-  const from = url.searchParams.get("from") ?? addDays(to, -DEFAULT_RANGE_DAYS);
+  if (!DATE_RE.test(to)) return { ok: false, res: json({ error: "to は YYYY-MM-DD 形式で指定してください" }, 400) };
+  let from = url.searchParams.get("from") ?? addDays(to, -DEFAULT_RANGE_DAYS);
+  if (!DATE_RE.test(from)) return { ok: false, res: json({ error: "from は YYYY-MM-DD 形式で指定してください" }, 400) };
+  if (from > to) return { ok: false, res: json({ error: "from は to 以前の日付にしてください" }, 400) };
+  if (from < EARLIEST_FROM) from = EARLIEST_FROM;
 
   const point = await getPoint(env.DB, pointCode);
   if (!point) return { ok: false, res: json({ error: `unknown point ${pointCode}` }, 404) };
@@ -144,14 +154,37 @@ async function handleAddPoint(req: Request, env: Env): Promise<Response> {
     etrn_block_no: str(body?.etrn_block_no),
     enabled: 1,
   };
+
+  // これらの値は気象庁へのリクエストURLに埋め込まれるため、形式を厳密に制限する。
+  if (
+    !CODE_RE.test(point.point_code) ||
+    !CODE_RE.test(point.bosai_code ?? "") ||
+    (point.etrn_prec_no !== null && !/^\d{1,3}$/.test(point.etrn_prec_no)) ||
+    (point.etrn_block_no !== null && !CODE_RE.test(point.etrn_block_no)) ||
+    name.length > MAX_NAME_LENGTH
+  ) {
+    return json({ error: "地点コードまたは名称の形式が不正です" }, 400);
+  }
+
+  // 無認証での登録は「新規追加」かつ上限件数までに限る。
+  // 既存地点の上書きと上限超過は CRON_TOKEN を持つ管理者のみ。
+  if (!hasValidToken(req, env, new URL(req.url))) {
+    if (await getPoint(env.DB, pointCode)) {
+      return json({ error: "この地点コードは登録済みです" }, 409);
+    }
+    const all = await getPoints(env.DB, false);
+    if (all.length >= MAX_POINTS) {
+      return json({ error: "登録できる地点数の上限に達しています" }, 429);
+    }
+  }
   await addPoint(env.DB, point);
   // データは初回閲覧時の backfill が from に応じて取得する（ここでは登録のみ）。
   return json({ added: pointCode, name });
 }
 
 async function handleDeletePoint(req: Request, env: Env, url: URL): Promise<Response> {
-  const token = url.searchParams.get("token") ?? req.headers.get("x-cron-token");
-  if (env.CRON_TOKEN && token !== env.CRON_TOKEN) {
+  // CRON_TOKEN 未設定時も拒否する（fail-closed）。未設定＝誰でも削除可、にはしない。
+  if (!hasValidToken(req, env, url)) {
     return json({ error: "unauthorized" }, 401);
   }
   const pointCode = url.searchParams.get("point");
@@ -221,6 +254,12 @@ async function etrnStationName(prec: string, block: string): Promise<string | nu
   return m ? m[1] : null;
 }
 
+/** CRON_TOKEN が設定されており、かつ要求のトークンが一致する場合のみ true。 */
+function hasValidToken(req: Request, env: Env, url: URL): boolean {
+  const token = url.searchParams.get("token") ?? req.headers.get("x-cron-token");
+  return !!env.CRON_TOKEN && !!token && token === env.CRON_TOKEN;
+}
+
 function str(v: unknown): string | null {
   if (v === undefined || v === null) return null;
   const s = String(v).trim();
@@ -228,8 +267,7 @@ function str(v: unknown): string | null {
 }
 
 async function handleCron(req: Request, env: Env, url: URL): Promise<Response> {
-  const token = url.searchParams.get("token") ?? req.headers.get("x-cron-token");
-  if (!env.CRON_TOKEN || token !== env.CRON_TOKEN) {
+  if (!hasValidToken(req, env, url)) {
     return json({ error: "unauthorized" }, 401);
   }
 
